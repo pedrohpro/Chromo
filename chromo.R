@@ -21,6 +21,7 @@ setClass(
     columns = "ANY",
     classification = "ANY",
     genome = "ANY",
+    scatter = "ANY",
     density = "ANY",
     interactions = "ANY"
   )
@@ -33,9 +34,9 @@ setClass(
 # include cytobands df for non-human species? (its not widely spread, so no!) if(chrObj@genome$inp_annot != "default_human"){dont include cytobands!!!}
 
 
-##############################################
-#####    chromoInitiate: constructor    ######
-##############################################
+################################
+#####    chromoInitiate    #####
+################################
 
 # 4 OPTIONS: use default ensembl (human), download new ensembl (any), provide ensembl (any), provide gtf (any)
 
@@ -166,8 +167,8 @@ chromoScatter <- function(
     chromoObject,
     separate_by = "chromosome_name", #separate group
     only_expr_features = F, #calculates percentage/enrichment based on only expressed features (for Seurat only! When separate_by = "celltype")
-    score_method = "pct", # "pct" or "hyp"
-    padj_method = "FDR", # "BH", "BF", "FDR"
+    score_method = "pct", # "pct" or "hyp" or "hyp_padj"
+    padj_method = "BH", # existing params of p.adjust() function # only if using "hyp_padj"
     highlight_features = "top_by_separator", # "top_by_separator", "top_overall" or a list of names
     show_if_not_deg = T, # only if providing a list of names
     n_top_features = 1, # only if using "top_by_separator" or "top_overall"
@@ -178,10 +179,10 @@ chromoScatter <- function(
     color_bar_down = "#3771c866",
     color_bar_up = "#ff220066",
     color_gene_name_down = "#3771c8",
-    color_gene_name_up = "#880000",
+    color_gene_name_up = "#aa0000",
     color_gene_name_no = "#555555", # only if using show_if_not_deg == T
     color_score_down = "#3771c8",
-    color_score_up = "#880000",
+    color_score_up = "#aa0000",
     color_line_up = "", # Not working
     color_line_down = "", # Not working
     color_xaxis_text = "", # Not working
@@ -208,92 +209,111 @@ chromoScatter <- function(
     style_yaxis_label =  # Not working
 ){
 
-  # highlight features
+  ### highlight features
   if(highlight_features %in% c("top_by_separator", "top_overall")){
     max_genes <- chromoObject@data %>%
+      { if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
       filter(DEG == "UP") %>%
       { if (highlight_features == "top_by_separator") group_by(., !!sym(separate_by)) else . } %>%
       slice_max(order_by = !!sym(chromoObject@columns$fc_col), n = n_top_features, with_ties = FALSE) %>%
       { if (highlight_features == "top_by_separator") ungroup(.) else . } %>%
-      dplyr::select(!!sym(chromoObject@columns$DEG), !!sym(separate_by))
+      dplyr::select(!!sym(chromoObject@columns$gene_col), !!sym(separate_by))
 
     min_genes <- chromoObject@data %>%
+      { if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
       filter(DEG == "DOWN") %>%
       { if (highlight_features == "top_by_separator") group_by(., !!sym(separate_by)) else . } %>%
       slice_min(order_by = !!sym(chromoObject@columns$fc_col), n = n_top_features, with_ties = FALSE) %>%
       { if (highlight_features == "top_by_separator") ungroup(.) else . } %>%
-      dplyr::select(!!sym(chromoObject@columns$DEG), !!sym(separate_by))
+      dplyr::select(!!sym(chromoObject@columns$gene_col), !!sym(separate_by))
 
-    aux <- rbind(max_genes, min_genes)
+    aux <- rbind(max_genes, min_genes) %>%
+      mutate(gene_sep = paste0(!!sym(chromoObject@columns$gene_col), "_", !!sym(separate_by))) %>%
+      pull(gene_sep)
   }else{
-    aux <- highlight_features # in this case i might want to show if a gene is not a DEG in certain celltypes
+    aux <- highlight_features
   }
 
   local_aux <- chromoObject@data %>%
+    { if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
     mutate(
       highlight = case_when(
-        !!sym(chromoObject@columns$gene_col) %in% aux & ~ !!sym(chromoObject@columns$gene_col),
+        highlight_features %in% c("top_by_separator", "top_overall") & paste0(!!sym(chromoObject@columns$gene_col), "_", !!sym(separate_by)) %in% aux ~ !!sym(chromoObject@columns$gene_col),
+        !highlight_features %in% c("top_by_separator", "top_overall") & show_if_not_deg & !!sym(chromoObject@columns$gene_col) %in% highlight_features ~ !!sym(chromoObject@columns$gene_col),
+        !highlight_features %in% c("top_by_separator", "top_overall") & !show_if_not_deg & !!sym(chromoObject@columns$gene_col) %in% highlight_features & !!sym(chromoObject@columns$gene_col) %in% c("UP", "DOWN") ~ !!sym(chromoObject@columns$gene_col),
         TRUE ~ NA
       ),
       color = case_when(
         !is.na(highlight) & DEG == "UP" ~ color_gene_name_up,
         !is.na(highlight) & DEG == "DOWN" ~ color_gene_name_down,
+        !is.na(highlight) & DEG == "NO" ~ color_gene_name_no,
         TRUE ~ NA
       )
     )
 
-  # percentage annotation and bars
+  ### percentage annotation and bars
   annot_df <- chromoObject@data %>%
-    {if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>%
-    group_by(!!sym(separate_by), DEG) %>%
-    summarise(total = n()) %>%
-    group_by(!!sym(separate_by)) %>%
-    mutate(
-      pct = (total / sum(total)) * 100
-    ) %>%
-    ungroup() %>%
-    filter(
-      DEG != "NO"
-    ) %>%
-    mutate(
-      proportion = (pct/max(pct) * (max(abs(local_aux[[chromoObject@columns$fc_col]])))),
-      proportion = case_when(
-        DEG == "UP" ~ proportion,
-        DEG == "DOWN" ~ -proportion,
-        TRUE ~ proportion
-      ),
-      pct = paste0(round(pct, 1), "%"),
-      y_axis = case_when(
-        DEG == "UP" ~ 1.2 * max(local_aux[[chromoObject@columns$fc_col]]),
-        DEG == "DOWN" ~ 1.2 * min(local_aux[[chromoObject@columns$fc_col]]),
-        TRUE ~ NA
-      ),
-      color = case_when(
-        DEG == "UP" ~ color_score_up,
-        DEG == "DOWN" ~ color_score_down,
-        TRUE ~ NA
-      )
-    )
+    {if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} # needs improvement or removal!!!
 
-  if(score_method == "fish"){
-    # for (i in 1:nrow(annot_df)) {
-    #
-    #   # Fischer exact test
-    #   total_DEG <- df %>% filter(!!sym(DEG) == "NO") %>% nrow()
-    #   total_no_DEG <- df %>% filter(!!sym(DEG) == "NO") %>% nrow()
-    #   DEG_clusters$pval <- apply(DEG_clusters, 1, function(row){
-    #     matrix_data <- matrix(c(row["n_DEG"], row["n_not_DEG"], total_DEG - as.numeric(row["n_DEG"]), total_no_DEG - as.numeric(row["n_not_DEG"])), nrow = 2)
-    #     matrix_data <- apply(matrix_data, 2, as.numeric)
-    #     fish_res <- fisher.test(matrix_data)
-    #     return(fish_res[["p.value"]])
-    #   })
-    #
-    #   # padj and score
-    #   DEG_clusters$padj <- p.adjust(DEG_clusters$pval, method = "BH")
-    #   DEG_clusters$score <- -log10(DEG_clusters$padj)
-    #
-    #   annot_df$fish[[i]] <- ""
-    # }
+  if(score_method == "pct"){
+    annot_df <- annot_df %>%
+      group_by(!!sym(separate_by), DEG) %>%
+      summarise(total = n()) %>%
+      group_by(!!sym(separate_by)) %>%
+      mutate(
+        pct = (total / sum(total)) * 100
+      ) %>%
+      ungroup() %>%
+      filter(
+        DEG != "NO"
+      ) %>%
+      mutate(
+        proportion = (pct/max(pct) * (max(abs(local_aux[[chromoObject@columns$fc_col]])))),
+        proportion = case_when(
+          DEG == "UP" ~ proportion,
+          DEG == "DOWN" ~ -proportion,
+          TRUE ~ proportion
+        ),
+        pct = paste0(round(pct, 1), "%"),
+        y_axis = case_when(
+          DEG == "UP" ~ 1.2 * max(local_aux[[chromoObject@columns$fc_col]]),
+          DEG == "DOWN" ~ 1.2 * min(local_aux[[chromoObject@columns$fc_col]]),
+          TRUE ~ NA
+        ),
+        color = case_when(
+          DEG == "UP" ~ color_score_up,
+          DEG == "DOWN" ~ color_score_down,
+          TRUE ~ NA
+        )
+      )
+  }else if(score_method %in% c("hyp","hyp_padj")){
+    annot_df <- annot_df %>%
+      group_by(!!sym(separate_by), DEG) %>%
+      summarise(total = n()) %>%
+      mutate(
+        pval = 1 - phyper(
+          total - 1,
+          sum(annot_df[annot_df$DEG == DEG,"total"]),
+          sum(annot_df$total) - sum(annot_df[annot_df$DEG == DEG, "total"]),
+          sum(annot_df[annot_df[separate_by] == !!sym(separate_by), "total"])
+        )
+      ) %>%
+      filter(!!sym(separate_by) != "NO")
+
+    if(score_method == "hyp_padj"){
+      annot_df$pval <- p.adjust(annot_df$pval, method = padj_method)
+    }
+
+    annot_df <- annot_df %>%
+      mutate(
+        proportion = -log10(pval),
+        proportion = (pct/max(pct) * (max(abs(local_aux[[chromoObject@columns$fc_col]])))), ############### parei aqui
+        proportion = case_when(
+          DEG == "UP" ~ proportion,
+          DEG == "DOWN" ~ -proportion,
+          TRUE ~ proportion
+        )
+      )
   }
 
   deg_plot <- ggplot()+
@@ -358,7 +378,8 @@ chromoScatter <- function(
       size = size_score
     )
 
-  return(deg_plot)
+  chromoObject@scatter <- list(enrich_df = annot_df, scatterPlot = deg_plot)
+  return(chromoObject)
 }
 
 
