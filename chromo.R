@@ -246,6 +246,8 @@ chromoCompositionPlot <- function(
     show_if_not_deg = T, # only if providing a list of names
     n_top_features = 1, # only if using "top_by_separator" or "top_overall"
     fc_line = T,
+    title_xaxis = "Chromosome",
+    title_yaxis = "Log2 fold change",
 
     color_dot_down = "#3771c8aa",
     color_dot_up = "#ff2200aa",
@@ -268,15 +270,15 @@ chromoCompositionPlot <- function(
     size_dot_no = 0.8,
     size_bar = 0.8,
     size_gene_name = 3.2,
-    size_score = 4,
+    size_score = ifelse(chromoObject@composition$score_method %in% c("hyp", "hyp_padj"), 7, 4),
     size_line = 0.4,
-    size_xaxis_text = 16,
-    size_xaxis_label = 14,
+    size_xaxis_text = 14,
+    size_xaxis_label = 12,
     size_yaxis_text = 12,
-    size_yaxis_label = 10,
+    size_yaxis_label = 12,
 
     style_gene_name = "plain",
-    style_score = "plain",
+    style_score = "bold",
     style_line = 2, # 1 - continuous, 2- dashed, 3 - dotted, etc.
     style_xaxis_text = "bold",
     style_xaxis_label = "plain",
@@ -301,15 +303,21 @@ chromoCompositionPlot <- function(
         compo = case_when(
           chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ -log10(compo),
           TRUE ~ compo
-        ),
-        proportion = (compo/max(compo) * (max(abs(aux[[fc_col]])))),
+        )
+      )
+
+    max_compo <- max(compo_df$compo, na.rm = T) # debugged
+
+    compo_df <- compo_df %>%
+      mutate(
+        proportion = (compo/max_compo * (max(abs(aux[[fc_col]])))),
         proportion = case_when(
           !!sym(alteration) == "UP" ~ proportion,
           !!sym(alteration) == "DOWN" ~ -proportion,
           TRUE ~ proportion
         ),
         compo = case_when(
-          chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ paste0("p=", formatC(compo, format = "e", digits = 1)),
+          chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ ifelse(compo > -log10(0.001),"***",ifelse(compo > -log10(0.01),"**",ifelse(compo > -log10(0.05),"*",""))),
           TRUE ~ paste0(round(compo, 1), "%")
         ),
         y_axis = case_when(
@@ -404,8 +412,8 @@ chromoCompositionPlot <- function(
         size = size_dot_alt
       )+
       labs(
-        x = separate_by,
-        y = "Log2 Fold Change"
+        x = title_xaxis,
+        y = title_yaxis
       )+
       scale_color_manual(values = c("DOWN" = color_dot_down, "NO" = color_dot_no, "UP" = color_dot_up)) +
       theme(
