@@ -21,7 +21,7 @@ setClass(
     columns = "ANY",
     classification = "ANY",
     genome = "ANY",
-    enrich = "ANY",
+    composition = "ANY",
     density = "ANY",
     interactions = "ANY"
   )
@@ -165,6 +165,7 @@ chromoReclassify <- function(
 
 chromoComposition <- function(
     chromoObject,
+    alteration = "DEG", # DEG or altered
     separate_by = "chromosome_name", #separate group
     only_expr_features = F, #calculates percentage/enrichment based on only expressed features (for Seurat only! When separate_by = "celltype") #### colocar isso numa lista?
     score_method = "pct", # "pct" or "hyp" or "hyp_padj"
@@ -176,7 +177,7 @@ chromoComposition <- function(
 
   if(score_method == "pct"){
     compo_df <- aux %>%
-      group_by(!!sym(separate_by), DEG) %>%
+      group_by(!!sym(separate_by), !!sym(alteration)) %>%
       summarise(total = n()) %>%
       group_by(!!sym(separate_by)) %>%
       mutate(
@@ -184,22 +185,32 @@ chromoComposition <- function(
       ) %>%
       ungroup() %>%
       filter(
-        DEG != "NO"
+        !!sym(alteration) != "NO"
       )
 
   }else if(score_method %in% c("hyp","hyp_padj")){
     compo_df <- aux %>%
-      group_by(!!sym(separate_by), DEG) %>%
-      summarise(total = n()) %>%
-      mutate(
-        compo = 1 - phyper( ########### arrumar isso aqui!!!
-          total - 1,
-          sum(aux[aux$DEG == DEG,"total"]),
-          sum(aux$total) - sum(aux[aux$DEG == DEG, "total"]),
-          sum(aux[aux[[separate_by]] == !!sym(separate_by), "total"])
-        )
-      ) %>%
-      filter(DEG != "NO")
+      group_by(!!sym(separate_by), !!sym(alteration)) %>%
+      summarise(total = n())
+
+    totals <- list()
+    totals$UP <- aux %>% filter(!!sym(alteration) == "UP") %>% nrow()
+    totals$DOWN <- aux %>% filter(!!sym(alteration) == "DOWN") %>% nrow()
+    totals$NO <- aux %>% filter(!!sym(alteration) == "NO") %>% nrow()
+
+    # pvalue calculation
+    compo_df$compo <- apply(compo_df, 1, function(x){
+      phyper(
+        as.numeric(x["total"]) - 1,
+        totals[[x[alteration]]],
+        nrow(aux) - totals[[x[alteration]]],
+        sum(compo_df$total[compo_df[[separate_by]] == x[separate_by]]),
+        lower.tail = FALSE
+      )
+    })
+
+    compo_df <- compo_df %>%
+      filter(!!sym(alteration) != "NO")
 
     if(score_method == "hyp_padj"){
       compo_df$compo <- p.adjust(compo_df$compo, method = padj_method)
@@ -208,11 +219,15 @@ chromoComposition <- function(
 
   chromoObject@composition <- list(
     compo_df = compo_df,
+    alteration = alteration,
     separate_by = separate_by,
     only_expr_features = only_expr_features,
-    score_method = score_method,
-    padj_method = padj_method
+    score_method = score_method
   )
+
+  if (score_method == "hyp_padj") {
+    chromoObject@composition$padj_method <- padj_method
+  }
 
   return(chromoObject)
 }
@@ -230,51 +245,56 @@ chromoCompositionPlot <- function(
     highlight_features = "top_by_separator", # "top_by_separator", "top_overall" or a list of names
     show_if_not_deg = T, # only if providing a list of names
     n_top_features = 1, # only if using "top_by_separator" or "top_overall"
+    fc_line = T,
 
     color_dot_down = "#3771c8aa",
     color_dot_up = "#ff2200aa",
     color_dot_no = "#dddddd33",
     color_bar_down = "#3771c866",
     color_bar_up = "#ff220066",
-    color_gene_name_down = "#3771c8",
+    color_gene_name_down = "#2D5EAA",
     color_gene_name_up = "#aa0000",
-    color_gene_name_no = "#555555", # only if using show_if_not_deg == T
-    color_score_down = "#3771c8",
+    color_gene_name_no = "#555555",
+    color_score_down = "#2D5EAA",
     color_score_up = "#aa0000",
-    color_line_up = "", # Not working
-    color_line_down = "", # Not working
-    color_xaxis_text = "", # Not working
-    color_xaxis_label = "", # Not working
-    color_yaxis_text = "", # Not working
-    color_yaxis_label = "", # Not working
+    color_line_up = "#aa0000",
+    color_line_down = "#2D5EAA",
+    color_xaxis_text = "black",
+    color_xaxis_label = "black",
+    color_yaxis_text = "black",
+    color_yaxis_label = "black",
 
-    size_dot = "", # Not working
+    size_dot_alt = 1.2,
+    size_dot_no = 0.8,
     size_bar = 0.8,
     size_gene_name = 3.2,
     size_score = 4,
-    size_line = "", # Not working
+    size_line = 0.4,
     size_xaxis_text = 16,
-    size_xaxis_label = 1, # Not working
-    size_yaxis_text = 1, # Not working
-    size_yaxis_label = 1, # Not working
+    size_xaxis_label = 14,
+    size_yaxis_text = 12,
+    size_yaxis_label = 10,
 
-    style_gene_name = NULL, # Not working
-    style_score = NULL, # Not working
-    style_line = "dotted", # Not working
-    style_xaxis_text = "bold", # Not working
-    style_xaxis_label = "", # Not working
-    style_yaxis_text = "", # Not working
-    style_yaxis_label = "" # Not working
+    style_gene_name = "plain",
+    style_score = "plain",
+    style_line = 2, # 1 - continuous, 2- dashed, 3 - dotted, etc.
+    style_xaxis_text = "bold",
+    style_xaxis_label = "plain",
+    style_yaxis_text = "bold",
+    style_yaxis_label = "plain",
+    style_spacing = "" # Not working
 ){
 
-  gene_col <- chromoObject@columns$gene_col ########### substituir em baixo pra reduzir quantidade de texto
+  gene_col <- chromoObject@columns$gene_col
   fc_col <- chromoObject@columns$fc_col
-  DEG <- chromoObject@columns$DEG
+  alteration <- chromoObject@composition$alteration
+  separate_by <- chromoObject@composition$separate_by
+  compo_df <- chromoObject@composition$compo_df
 
   if(!is.null(chromoObject@composition)){
 
     aux <- chromoObject@data %>%
-      {if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} # needs improvement or removal!!!
+      {if (chromoObject@composition$only_expr_features) filter(., pct.1 + pct.2 != 0) else .} # needs improvement or removal!!!
 
     compo_df <- compo_df %>%
       mutate(
@@ -282,130 +302,137 @@ chromoCompositionPlot <- function(
           chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ -log10(compo),
           TRUE ~ compo
         ),
-        proportion = (compo/max(compo) * (max(abs(aux[[chromoObject@columns$fc_col]])))),
+        proportion = (compo/max(compo) * (max(abs(aux[[fc_col]])))),
         proportion = case_when(
-          DEG == "UP" ~ proportion,
-          DEG == "DOWN" ~ -proportion,
+          !!sym(alteration) == "UP" ~ proportion,
+          !!sym(alteration) == "DOWN" ~ -proportion,
           TRUE ~ proportion
         ),
         compo = case_when(
-          chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ paste0("p=", formatC(pval, format = "e", digits = 1)),
-          TRUE ~ paste0(round(enr, 1), "%")
+          chromoObject@composition$score_method %in% c("hyp","hyp_padj") ~ paste0("p=", formatC(compo, format = "e", digits = 1)),
+          TRUE ~ paste0(round(compo, 1), "%")
         ),
         y_axis = case_when(
-          DEG == "UP" ~ 1.2 * max(aux[[chromoObject@columns$fc_col]]),
-          DEG == "DOWN" ~ 1.2 * min(aux[[chromoObject@columns$fc_col]]),
+          !!sym(alteration) == "UP" ~ 1.2 * max(aux[[fc_col]]),
+          !!sym(alteration) == "DOWN" ~ 1.2 * min(aux[[fc_col]]),
           TRUE ~ NA
         ),
         color = case_when(
-          DEG == "UP" ~ color_score_up,
-          DEG == "DOWN" ~ color_score_down,
+          !!sym(alteration) == "UP" ~ color_score_up,
+          !!sym(alteration) == "DOWN" ~ color_score_down,
           TRUE ~ NA
         )
       )
 
-    ### highlight features
+    # highlight features
     if(highlight_features %in% c("top_by_separator", "top_overall")){
-      max_genes <- chromoObject@data %>%
-        { if (chromoObject@composition$only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
-        filter(DEG == "UP") %>%
+      max_genes <- aux %>%
+        filter(!!sym(alteration) == "UP") %>%
         { if (highlight_features == "top_by_separator") group_by(., !!sym(separate_by)) else . } %>%
-        slice_max(order_by = !!sym(chromoObject@columns$fc_col), n = n_top_features, with_ties = FALSE) %>%
+        slice_max(order_by = !!sym(fc_col), n = n_top_features, with_ties = FALSE) %>%
         { if (highlight_features == "top_by_separator") ungroup(.) else . } %>%
-        dplyr::select(!!sym(chromoObject@columns$gene_col), !!sym(separate_by))
+        dplyr::select(!!sym(gene_col), !!sym(separate_by))
 
-      min_genes <- chromoObject@data %>%
-        { if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
-        filter(DEG == "DOWN") %>%
+      min_genes <- aux %>%
+        filter(!!sym(alteration) == "DOWN") %>%
         { if (highlight_features == "top_by_separator") group_by(., !!sym(separate_by)) else . } %>%
-        slice_min(order_by = !!sym(chromoObject@columns$fc_col), n = n_top_features, with_ties = FALSE) %>%
+        slice_min(order_by = !!sym(fc_col), n = n_top_features, with_ties = FALSE) %>%
         { if (highlight_features == "top_by_separator") ungroup(.) else . } %>%
-        dplyr::select(!!sym(chromoObject@columns$gene_col), !!sym(separate_by))
+        dplyr::select(!!sym(gene_col), !!sym(separate_by))
 
-      aux <- rbind(max_genes, min_genes) %>%
-        mutate(gene_sep = paste0(!!sym(chromoObject@columns$gene_col), "_", !!sym(separate_by))) %>%
+      hlf <- rbind(max_genes, min_genes) %>%
+        mutate(gene_sep = paste0(!!sym(gene_col), "_", !!sym(separate_by))) %>%
         pull(gene_sep)
     }else{
-      aux <- highlight_features
+      hlf <- highlight_features
     }
 
-    local_aux <- chromoObject@data %>%
-      { if (only_expr_features) filter(., pct.1 + pct.2 != 0) else .} %>% # needs improvement or removal!!!
+    local_aux <- aux %>%
       mutate(
         highlight = case_when(
-          highlight_features %in% c("top_by_separator", "top_overall") & paste0(!!sym(chromoObject@columns$gene_col), "_", !!sym(separate_by)) %in% aux ~ !!sym(chromoObject@columns$gene_col),
-          !highlight_features %in% c("top_by_separator", "top_overall") & show_if_not_deg & !!sym(chromoObject@columns$gene_col) %in% highlight_features ~ !!sym(chromoObject@columns$gene_col),
-          !highlight_features %in% c("top_by_separator", "top_overall") & !show_if_not_deg & !!sym(chromoObject@columns$gene_col) %in% highlight_features & !!sym(chromoObject@columns$gene_col) %in% c("UP", "DOWN") ~ !!sym(chromoObject@columns$gene_col),
+          highlight_features %in% c("top_by_separator", "top_overall") & paste0(!!sym(gene_col), "_", !!sym(separate_by)) %in% hlf ~ !!sym(gene_col),
+          !highlight_features %in% c("top_by_separator", "top_overall") & show_if_not_deg & !!sym(gene_col) %in% hlf ~ !!sym(gene_col),
+          !highlight_features %in% c("top_by_separator", "top_overall") & !show_if_not_deg & !!sym(gene_col) %in% hlf & !!sym(alteration) %in% c("UP", "DOWN") ~ !!sym(gene_col),
           TRUE ~ NA
         ),
         color = case_when(
-          !is.na(highlight) & DEG == "UP" ~ color_gene_name_up,
-          !is.na(highlight) & DEG == "DOWN" ~ color_gene_name_down,
-          !is.na(highlight) & DEG == "NO" ~ color_gene_name_no,
+          !is.na(highlight) & !!sym(alteration) == "UP" ~ color_gene_name_up,
+          !is.na(highlight) & !!sym(alteration) == "DOWN" ~ color_gene_name_down,
+          !is.na(highlight) & !!sym(alteration) == "NO" ~ color_gene_name_no,
           TRUE ~ NA
         )
       )
+
+    set.seed(42) # gene name position
 
     deg_plot <- ggplot()+
       geom_bar(
-        data = annot_df,
-        aes(x = !!sym(separate_by), y = proportion, fill = DEG), #ifelse(score_method == "pct", proportion, fish)
+        data = compo_df,
+        aes(x = !!sym(separate_by), y = proportion, fill = !!sym(alteration)),
         stat = "identity",
-        #position = position_dodge(width = 0.5),
-        width = size_bar # 0.5
-        #alpha = 0.6
+        width = size_bar
       ) +
-      scale_fill_manual(values = c("UP" = color_bar_up, "DOWN" = color_bar_down)) + # Custom colors for the bars
+      scale_fill_manual(values = c("UP" = color_bar_up, "DOWN" = color_bar_down)) # Custom colors for the bars
+
+    if(fc_line){
+      deg_plot <- deg_plot +
+        geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
+        geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line)
+    }
+
+    deg_plot <- deg_plot +
       geom_jitter( # not DEGs
-        data = local_aux %>% filter(DEG == "NO"),
-        aes(x = !!sym(separate_by), y = !!sym(chromoObject@columns$fc_col), color = DEG),
+        data = local_aux %>% filter(!!sym(alteration) == "NO"),
+        aes(x = !!sym(separate_by), y = !!sym(fc_col), color = !!sym(alteration)),
         position = position_jitterdodge(
           jitter.width = 0.4,
           jitter.height = 0,
           dodge.width = 0,
           seed = 42 # reproducible results (fixed random number generator)
         ),
-        size = 0.8
+        size = size_dot_no
       )+
       geom_jitter( # DEGs
-        data = local_aux %>% filter(DEG %in% c("UP", "DOWN")),
-        aes(x = !!sym(separate_by), y = !!sym(chromoObject@columns$fc_col), color = DEG),
+        data = local_aux %>% filter(!!sym(alteration) %in% c("UP", "DOWN")),
+        aes(x = !!sym(separate_by), y = !!sym(fc_col), color = !!sym(alteration)),
         position = position_jitterdodge(
           jitter.width = 0.4,
           jitter.height = 0,
           dodge.width = 0,
           seed = 42 # reproducible results (fixed random number generator)
         ),
-        size = 1.2
+        size = size_dot_alt
       )+
       labs(
-        #title = paste0("DEGs across chromosomes for ", levels(cell_df$celltype), " from ", stu_name), ################# parameter of the function?
-        x = NULL, #"Chromosome",
-        y = "Log2 Fold Change",
-        color = NULL
+        x = separate_by,
+        y = "Log2 Fold Change"
       )+
-      #coord_cartesian(ylim = c(-3, 3)) + # this puts genes outside these limits outside the plot # zoom
       scale_color_manual(values = c("DOWN" = color_dot_down, "NO" = color_dot_no, "UP" = color_dot_up)) +
       theme(
         panel.background = element_rect(fill = "white"),
-        panel.grid = element_line(color = "#dddddd77", linetype = "dotted"),
-        axis.text.x = element_text(size = size_xaxis_text, face = "bold"),  # Modify font size and make it bold
+        panel.grid = element_blank(),
+        axis.text.x = element_text(color = color_xaxis_text, size = size_xaxis_text, face = style_xaxis_text),
+        axis.title.x = element_text(color = color_xaxis_label, size = size_xaxis_label, face = style_xaxis_label),
+        axis.text.y = element_text(color = color_yaxis_text, size = size_yaxis_text, face = style_yaxis_text),
+        axis.title.y = element_text(color = color_yaxis_label, size = size_yaxis_label, face = style_yaxis_label),
         legend.position = "none" # Remove legends
       )+
       geom_text_repel(
         data = local_aux,
-        aes(x = !!sym(separate_by), y = !!sym(chromoObject@columns$fc_col), color = DEG, label = highlight),
+        aes(x = !!sym(separate_by), y = !!sym(fc_col), color = !!sym(alteration), label = highlight),
         max.overlaps = Inf,
         color = local_aux$color,
-        size = size_gene_name
+        size = size_gene_name,
+        fontface = style_gene_name
       ) +
       annotate( #score
         geom = "text",
-        x = annot_df[[separate_by]],
-        y = annot_df$y_axis,
-        label = annot_df$enr,
-        color = annot_df$color,
-        size = size_score
+        x = compo_df[[separate_by]],
+        y = compo_df$y_axis,
+        label = compo_df$compo,
+        color = compo_df$color,
+        size = size_score,
+        fontface = style_score
       )
 
     return(deg_plot)
