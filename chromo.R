@@ -460,10 +460,11 @@ chromoDensity <- function(
     bandwidth = "nrd0",
     cluster_threshold = 20, # 20%
     separate_up_down = F,
+    calculate_bands = F, ### fix!
+
     weight_by = "none", #c("none", "length", "foldchange")
     scale_density = T,
-    score_from_padj = T,
-    calc_bands = T ######## fazer
+    score_from_padj = T
 ){
   cytobands <- read.delim(system.file("extdata", "hsapiens_cytogenicbands.tsv", package = "chromo")) # bases obtained from UCSC's table browser
 
@@ -497,7 +498,7 @@ chromoDensity <- function(
       dens_df
     }) %>%
     mutate(
-      y = if_else(y < max(y)*(cluster_threshold/100), 0, y) # by chromosome and NOT or overall beause it is grouped!!!
+      y = if_else(y < max(y)*(cluster_threshold/100), 0, y) ####### remover isso aqui?
     ) %>%
     ungroup() %>%
     mutate(!!sym(chromosome) := factor(!!sym(chromosome)))
@@ -716,7 +717,11 @@ chromoDensity <- function(
     }
 
     chromoObject@density$notSeparated = list(
-      DEG_clusters = DEG_clusters, BANDS_clusters = BANDS_clusters, DEG_density = DEG_density, ALL_clusters = ALL_clusters, ALL_density = ALL_density,
+      DEG_clusters = DEG_clusters,
+      BANDS_clusters = BANDS_clusters,
+      ALL_clusters = ALL_clusters, ####### remover isso aqui?
+      DEG_density = DEG_density,
+      ALL_density = ALL_density,
       parameters = list(bandwidth = bandwidth, threshold = cluster_threshold, weight_by = weight_by, scaled = scale_density)
     )
 
