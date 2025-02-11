@@ -451,8 +451,7 @@ chromoDensity <- function(
     bandwidth = "nrd0",
     cluster_threshold = 20, # 20%
     DEG_type = list("UP", "DOWN"), # c("UP", "DOWN"), "UP, "DOWN"
-    padj_method = "none", # c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", fdr", "none")
-    weight_by = "none" #c("none", "length", "foldchange")
+    padj_method = "none" # c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", fdr", "none")
 ){
 
   calculate_density <- function(subset, chro) { # is the really necessary?
@@ -578,11 +577,27 @@ chromoDensity <- function(
       cluster_num = seq(1,nrow(DEG_clusters))
     )
 
+  # Bands affected by each cluster
+  aux <-
+  DEG_clusters <- DEG_clusters %>%
+    mutate(bands = "")
+  # bands_to_keep <- apply(cytobands, 1, function(x){
+  #   aux <- top_clusters %>% filter(chromosome == x[["chr"]])
+  #   for(i in 1:nrow(aux)){
+  #     if((as.numeric(x[["baseStart"]]) < aux$end_position[i]) & (as.numeric(x[["baseStart"]]) > aux$start_position[i])){
+  #       return(T)
+  #     }
+  #     if((as.numeric(x[["baseEnd"]]) < aux$end_position[i]) & (as.numeric(x[["baseEnd"]]) > aux$start_position[i])){
+  #       return(T)
+  #     }
+  #   }
+  #   return(F)
+  # })
+
   chromoObject@density[[paste(DEG_type, collapse = ifelse(length(DEG_type) > 1, "_", ""))]] = list(
     DEG_clusters = DEG_clusters,
     bandwidth = bandwidth,
     threshold = cluster_threshold,
-    weight_by = weight_by,
     padj_method = padj_method
   )
 
@@ -598,7 +613,8 @@ chromoDensityPlot <- function(
     DEG_type = list("UP", "DOWN"), # list("UP", "DOWN"), "UP", "DOWN"
     n_top_clusters = 10,
     include_genes = F,
-    include_density = F,
+    include_density = T,
+    all_chr = T,
 
     color_enrich = "#990099",
     color_enrich_up = "#dd2200",
@@ -627,22 +643,14 @@ chromoDensityPlot <- function(
 
   # top clusters and bands to include
   top_clusters <- DEG_clusters %>% arrange(-score) %>% head(n_top_clusters)
-  chr_with_clu <- unique(top_clusters$chromosome)
 
-  # bands_to_keep <- apply(cytobands, 1, function(x){
-  #   aux <- top_clusters %>% filter(chromosome == x[["chr"]])
-  #   for(i in 1:nrow(aux)){
-  #     if((as.numeric(x[["baseStart"]]) < aux$end_position[i]) & (as.numeric(x[["baseStart"]]) > aux$start_position[i])){
-  #       return(T)
-  #     }
-  #     if((as.numeric(x[["baseEnd"]]) < aux$end_position[i]) & (as.numeric(x[["baseEnd"]]) > aux$start_position[i])){
-  #       return(T)
-  #     }
-  #   }
-  #   return(F)
-  # })
+  if(all_chr){
+    chr_with_clu <- c(as.character(seq(1,22)), "X", "Y")
+  }else{
+    chr_with_clu <- unique(top_clusters$chromosome)
+  }
 
-  aux <- cytobands %>%
+  bands_to_keep <- cytobands %>%
     group_by(chr) %>%
     summarize(
       baseStart = min(baseStart),
@@ -651,10 +659,7 @@ chromoDensityPlot <- function(
     ) %>%
     mutate(
       band = row_number()
-    )
-
-  bands_to_keep <- aux %>%
-    #filter(bands_to_keep) %>%
+    ) %>%
     rbind(cytobands %>% filter(sub("^[^_]*_", "", band) %in% c("p11.1", "p11", "q11.1", "q11")))
 
   # plot
@@ -693,9 +698,7 @@ chromoDensityPlot <- function(
         #legend.position = "none" # No legend
       )
 
-    if(include_density){
-
-      weight_by = chromoObject@density[[density_type]]$weight_by
+    if(include_density & chr_with_clu[i] %in% top_clusters$chromosome){
 
       dens <- density(
         chromoObject@data %>% filter(!!sym(chromosome) == chr_with_clu[i], DEG %in% DEG_type) %>% pull(avg_position),
@@ -727,7 +730,7 @@ chromoDensityPlot <- function(
             y < 0 ~ 0,
             TRUE ~ y
           ),
-          y = y/max(y)
+          y = 1.5*y/max(y)
         ) %>%
         add_row(x = 0, y = 0) %>% # zero no inínio
         add_row(x = max(cytobands[cytobands$chr == chr_with_clu[i], "baseEnd"]), y = 0) %>%  # zero no fim
@@ -743,19 +746,25 @@ chromoDensityPlot <- function(
         )
     }
 
+    # fixes chr sizes
+    if(include_density & !(chr_with_clu[i] %in% top_clusters$chromosome)){
+      plots_list[[i]] <- plots_list[[i]] +
+        geom_segment(aes(x = 0, xend = 0, y = 0, yend = 1.5), alpha = 0)
+    }
+
     if(include_genes){
       plots_list[[i]] <- plots_list[[i]] +
         geom_point( # not DEGs
           data = chromoObject@data %>% filter(!!sym(chromosome) == chr_with_clu[i], !!sym(DEG) == "NO"),
-          aes(x = !!sym(avg_position)), y = 0.1, color = "#00000022" ### FIX max_density after fixing density!!!
+          aes(x = !!sym(avg_position)), y = 0.1, color = "#00000022"
         ) +
         geom_point( # DEGs
           data = chromoObject@data %>% filter(!!sym(chromosome) == chr_with_clu[i], !!sym(DEG) %in% DEG_type),
-          aes(x = !!sym(avg_position)), y = 0.1, color = paste0(plot_color, "aa") ### FIX max_density after fixing density!!!
+          aes(x = !!sym(avg_position)), y = 0.1, color = paste0(plot_color, "aa")
         )
     }
 
-    # cytogenetic bands
+    # cytogenetic bands ################## deixar os centromeros mais finos que o resto (estético!!!)
     for (j in bands_to_keep[bands_to_keep$chr == chr_with_clu[i], "band", drop = TRUE]) {
 
       plots_list[[i]] <- plots_list[[i]] +
@@ -792,21 +801,6 @@ chromoDensityPlot <- function(
           alpha = 0.8
         )
     }
-
-    # # cytogenetic bands top labels
-    # for (j in BANDS_clusters %>% filter(chr == levels(ALL_density[[chromosome]])[i], band %in% top_bands) %>% pull(band)) {
-    #   plots_list[[i]] <- plots_list[[i]] +
-    #     annotate(
-    #       "text",
-    #       x = (BANDS_clusters[BANDS_clusters$band == j, "baseStart"] + BANDS_clusters[BANDS_clusters$band == j, "baseEnd"])/2,
-    #       y = (max_density * -0.6 + max_density * -0.2)/2,
-    #       label = sub("^[^_]*_", "", j),
-    #       color = "black",
-    #       size = 1.5,
-    #       angle = 90,
-    #       fontface = "bold"
-    #     )
-    # }
 
     # cluster name
     for (j in top_clusters[top_clusters$chromosome == chr_with_clu[i], "cluster_num", drop = T]) {
