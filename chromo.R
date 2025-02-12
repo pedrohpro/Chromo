@@ -578,21 +578,14 @@ chromoDensity <- function(
     )
 
   # Bands affected by each cluster
-  aux <-
-  DEG_clusters <- DEG_clusters %>%
-    mutate(bands = "")
-  # bands_to_keep <- apply(cytobands, 1, function(x){
-  #   aux <- top_clusters %>% filter(chromosome == x[["chr"]])
-  #   for(i in 1:nrow(aux)){
-  #     if((as.numeric(x[["baseStart"]]) < aux$end_position[i]) & (as.numeric(x[["baseStart"]]) > aux$start_position[i])){
-  #       return(T)
-  #     }
-  #     if((as.numeric(x[["baseEnd"]]) < aux$end_position[i]) & (as.numeric(x[["baseEnd"]]) > aux$start_position[i])){
-  #       return(T)
-  #     }
-  #   }
-  #   return(F)
-  # })
+  DEG_clusters$bands <- apply(DEG_clusters, 1, function(x){
+    aux <- cytobands %>%
+      filter(
+        chr == x["chromosome"],
+        (baseStart < as.numeric(x[end_position]) & baseEnd > as.numeric(x[end_position])) | (baseStart < as.numeric(x[start_position]) & baseEnd > as.numeric(x[start_position]))
+      )
+    return(paste(aux$band, collapse = ";"))
+  })
 
   chromoObject@density[[paste(DEG_type, collapse = ifelse(length(DEG_type) > 1, "_", ""))]] = list(
     DEG_clusters = DEG_clusters,
@@ -691,11 +684,6 @@ chromoDensityPlot <- function(
         axis.title.x = element_blank(),  # Remove x-axis title
         axis.line.x = element_blank(),  # Remove x-axis line
         axis.line.y = element_blank()  # Remove y-axis line
-        #axis.text.y = element_text(face = "bold", size = size_yaxis_text),  # Make axis text bold
-        #axis.text.x = element_text(face = "bold", angle = rotate_x, hjust = ifelse(rotate_x != 0, 1, 0.5), size = size_xaxis_text), # rotate x axis test 45 degrees
-        #axis.ticks.x = element_blank(),  # Remove x-axis ticks
-        #axis.ticks.y = element_line(color = "black", linewidth = 0.5)  # Make y-axis ticks bold
-        #legend.position = "none" # No legend
       )
 
     if(include_density & chr_with_clu[i] %in% top_clusters$chromosome){
