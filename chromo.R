@@ -817,14 +817,63 @@ chromoDensityPlot <- function(
 chromoZoom <- function(
     chromoObject,
     DEG_type = list("UP", "DOWN"), # list("UP", "DOWN"), "UP", "DOWN"
-    cluster = 1
+    cluster = 1,
+
+    color_dot_down = "#3771c8aa",
+    color_dot_up = "#ff2200aa",
+    color_dot_no = "#dddddd33",
+    color_bar_down = "#3771c866",
+    color_bar_up = "#ff220066",
+    color_gene_name_down = "#2D5EAA",
+    color_gene_name_up = "#aa0000",
+    color_gene_name_no = "#555555",
+    color_score_down = "#2D5EAA",
+    color_score_up = "#aa0000",
+    color_line_up = "#aa0000",
+    color_line_down = "#2D5EAA",
+    color_xaxis_text = "black",
+    color_xaxis_label = "black",
+    color_yaxis_text = "black",
+    color_yaxis_label = "black",
+
+    size_dot_alt = 1.2,
+    size_dot_no = 0.8,
+    size_bar = 0.8,
+    size_gene_name = 3.2,
+    size_score = ifelse(chromoObject@composition$score_method %in% c("hyp", "hyp_padj"), 7, 4),
+    size_line = 0.4,
+    size_xaxis_text = 14,
+    size_xaxis_label = 12,
+    size_yaxis_text = 12,
+    size_yaxis_label = 12,
+
+    style_gene_name = "plain",
+    style_score = "bold",
+    style_line = 2, # 1 - continuous, 2- dashed, 3 - dotted, etc.
+    style_xaxis_text = "bold",
+    style_xaxis_label = "plain",
+    style_yaxis_text = "bold",
+    style_yaxis_label = "plain",
+    style_spacing = "" # Not working
 ){
+
+  gene_col <- chromoObject@columns$gene_col
+  fc_col <- chromoObject@columns$fc_col
+  chromosome <- chromoObject@columns$chromosome
+  start_position <- chromoObject@columns$start_position
+  end_position <- chromoObject@columns$end_position
+  avg_position <- chromoObject@columns$avg_position
+  gene_length <- chromoObject@columns$gene_length
+  DEG <- chromoObject@columns$DEG
+  cytobands <- chromoObject@genome$cytobands
 
   custom_labels <- function(x) {
     ifelse(x >= 1e9, paste0(round(x / 1e9, 2), " Gb"),
            ifelse(x >= 1e6, paste0(round(x / 1e6, 2), " Mb"),
                   ifelse(x >= 1e3, paste0(round(x / 1e3, 2), " kb"), as.character(x))))
   }
+
+  DEdf <- chromoObject@data
 
   if(!is.list(DEG_type)){
     DEG_type <- list(DEG_type)
@@ -834,7 +883,14 @@ chromoZoom <- function(
 
   cluster_df <- chromoObject@density[[density_type]]$DEG_clusters %>% filter(cluster_num == cluster)
 
-  DEGs_in_cluster <- unlist(strsplit(df[df$cluster_num == cluster,"DEGs"], ";")) ########### fix!
+  features_in_cluster <- unlist(strsplit(cluster_df[["all_features"]], ";"))
+  DEGs_in_cluster <- unlist(strsplit(cluster_df[["DEGs"]], ";"))
+  not_DEGs <- setdiff(features_in_cluster, DEGs_in_cluster)
+
+  # min and max log2fc
+  fc_vector <- DEdf %>% filter(!!sym(gene_col) %in% features_in_cluster) %>% pull(!!sym(fc_col))
+  max_fc <- max(fc_vector)
+  min_fc <- min(fc_vector)
 
   zoom_plot <- ggplot() +
     labs(
@@ -847,27 +903,21 @@ chromoZoom <- function(
       x = NULL,
       y = "Log2 fold change"
     ) +
-    theme_minimal() +
-    scale_y_continuous(expand = c(0, 0)) + # remove padding to x axis
+    scale_y_continuous(expand = c(0, 0), limits = c(1.1*min_fc, 1.1*max_fc)) + # remove padding to x axis
     scale_x_continuous(expand = c(0, 0), labels = custom_labels) + # remove padding to y axis and IMPORTANT fix size for all chr
     theme(
-      plot.background = element_rect(fill = "white", color = NA),  # Set background color to white
-      panel.background = element_rect(fill = "white", color = NA),  # Set panel background color to white
-      panel.border = element_blank(),  # Remove panel borders
-      panel.grid.major = element_blank(),  # Remove major grid lines
-      panel.grid.minor = element_blank(),  # Remove minor grid lines
-      plot.title = element_text( hjust = 0.5, face = "bold", size = 20),
-      axis.line = element_line(color = "black", linewidth = 0.5),
-      axis.title.y = element_text(face = "bold", size = 20),
-      legend.position = "none" # No legend
-    )
+      panel.background = element_rect(fill = "white"),
+      panel.grid = element_blank(),
+      axis.text.x = element_text(color = color_xaxis_text, size = size_xaxis_text, face = style_xaxis_text),
+      axis.title.x = element_text(color = color_xaxis_label, size = size_xaxis_label, face = style_xaxis_label),
+      axis.text.y = element_text(color = color_yaxis_text, size = size_yaxis_text, face = style_yaxis_text),
+      axis.title.y = element_text(color = color_yaxis_label, size = size_yaxis_label, face = style_yaxis_label),
+      legend.position = "none" # Remove legends
+    ) +
+    geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
+    geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line) +
+    geom_hline(yintercept = 0, color = "#222222", size = 0.5, linetype = 1)
 
-  # min and max log2fc
-  fc_vector <- DEdf %>% filter(Symbol %in% unlist(strsplit(df[df$cluster_num == cluster,"all_features"], ";"))) %>% pull(log2FoldChange)
-  max_fc <- max(fc_vector)
-  min_fc <- min(fc_vector)
-
-  not_DEGs <- setdiff(unlist(strsplit(df[df$cluster_num == cluster,"all_features"], ";")), unlist(strsplit(df[df$cluster_num == cluster,"DEGs"], ";")))
   # not DEGs
   for (i in not_DEGs){
     zoom_plot <- zoom_plot +
@@ -881,7 +931,7 @@ chromoZoom <- function(
   }
 
   # DEGs
-  for (i in unlist(strsplit(df[df$cluster_num == cluster,"DEGs"], ";"))){
+  for (i in DEGs_in_cluster){
     zoom_plot <- zoom_plot +
       annotate("rect",
                xmin = DEdf[DEdf$Symbol == i,"start_position"],
@@ -895,7 +945,7 @@ chromoZoom <- function(
   # gene name
   zoom_plot <- zoom_plot +
     geom_text_repel(
-      data = DEdf %>% filter(Symbol %in% unlist(strsplit(df[df$cluster_num == cluster,"DEGs"], ";"))),
+      data = DEdf %>% filter(!!sym(gene_col) %in% DEGs_in_cluster),
       aes(x = avg_position, y = log2FoldChange, label = Symbol, color = DEG),
       hjust = 0.5,
       vjust = 0.5,
@@ -912,7 +962,7 @@ chromoZoom <- function(
 
 ##############################
 ######    chromo ORA   #######
-##############################
+############################## ############### tem algum bug no objeto que tem um elemento [[1]] vazio???????
 
 chromoORA <- function(
     chromoObject,
