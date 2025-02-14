@@ -842,7 +842,7 @@ chromoZoom <- function(
     size_gene_name = 3.2,
     size_score = ifelse(chromoObject@composition$score_method %in% c("hyp", "hyp_padj"), 7, 4),
     size_line = 0.4,
-    size_xaxis_text = 14,
+    size_xaxis_text = 12,
     size_xaxis_label = 12,
     size_yaxis_text = 12,
     size_yaxis_label = 12,
@@ -900,11 +900,11 @@ chromoZoom <- function(
         ", Chr", cluster_df[["chromosome"]],
         ", ", custom_labels(cluster_df[["start_position"]]), " - ", custom_labels(cluster_df[["end_position"]])
         ),
-      x = NULL,
+      x = "bases",
       y = "Log2 fold change"
     ) +
-    scale_y_continuous(expand = c(0, 0), limits = c(1.1*min_fc, 1.1*max_fc)) + # remove padding to x axis
-    scale_x_continuous(expand = c(0, 0), labels = custom_labels) + # remove padding to y axis and IMPORTANT fix size for all chr
+    scale_y_continuous(expand = c(0, 0), limits = c(1.2*min_fc, 1.2*max_fc), breaks = seq(ceiling(min_fc), floor(max_fc), 1)) + # remove padding to x axis
+    scale_x_continuous(expand = c(0, 0), limits = c(cluster_df[["start_position"]], cluster_df[["end_position"]]), labels = custom_labels) + # remove padding to y axis and IMPORTANT fix size for all chr
     theme(
       panel.background = element_rect(fill = "white"),
       panel.grid = element_blank(),
@@ -916,7 +916,7 @@ chromoZoom <- function(
     ) +
     geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
     geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line) +
-    geom_hline(yintercept = 0, color = "#222222", size = 0.5, linetype = 1)
+    geom_hline(yintercept = 0, color = "#444444", size = size_line, linetype = 1)
 
   # not DEGs
   for (i in not_DEGs){
