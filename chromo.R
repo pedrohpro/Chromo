@@ -578,14 +578,26 @@ chromoDensity <- function(
     )
 
   # Bands affected by each cluster
-  DEG_clusters$bands <- apply(DEG_clusters, 1, function(x){
-    aux <- cytobands %>%
-      filter(
-        chr == x["chromosome"],
-        (baseStart < as.numeric(x[end_position]) & baseEnd > as.numeric(x[end_position])) | (baseStart < as.numeric(x[start_position]) & baseEnd > as.numeric(x[start_position]))
-      )
-    return(paste(aux$band, collapse = ";"))
-  })
+  DEG_clusters <- DEG_clusters %>%
+    rowwise() %>%
+    mutate(
+      bands = {
+        chr_val   <- as.character(.data[["chromosome"]])
+        start_val <- as.numeric(.data[[start_position]])
+        end_val   <- as.numeric(.data[[end_position]])
+
+        aux <- cytobands %>%
+          filter(
+            chr == chr_val,
+            (baseStart < end_val & baseStart > start_val) |
+              (baseEnd < end_val & baseEnd > start_val) |
+              (baseStart < start_val & baseEnd > end_val) ########## ainda tem clusters aparecendo sem bandas
+          )
+
+        paste(aux$band, collapse = ";")
+      }
+    ) %>%
+    ungroup()
 
   chromoObject@density[[paste(DEG_type, collapse = ifelse(length(DEG_type) > 1, "_", ""))]] = list(
     DEG_clusters = DEG_clusters,
@@ -890,7 +902,7 @@ chromoZoom <- function(
   # min and max log2fc
   fc_vector <- DEdf %>% filter(!!sym(gene_col) %in% features_in_cluster) %>% pull(!!sym(fc_col))
   max_fc <- max(fc_vector)
-  min_fc <- min(fc_vector)
+  min_fc <- min(fc_vector) ###### fix all application when there are none negative log2fc values!!!
 
   zoom_plot <- ggplot() +
     labs(
@@ -903,8 +915,8 @@ chromoZoom <- function(
       x = "bases",
       y = "Log2 fold change"
     ) +
-    scale_y_continuous(expand = c(0, 0), limits = c(1.2*min_fc, 1.2*max_fc), breaks = seq(ceiling(min_fc), floor(max_fc), 1)) + # remove padding to x axis
-    scale_x_continuous(expand = c(0, 0), limits = c(cluster_df[["start_position"]], cluster_df[["end_position"]]), labels = custom_labels) + # remove padding to y axis and IMPORTANT fix size for all chr
+    scale_y_continuous(expand = c(0, 0), limits = c(2*min_fc, max_fc), breaks = seq(ceiling(min_fc), floor(max_fc), 1)) +
+    #scale_x_continuous(expand = c(0, 0), limits = c(cluster_df[["start_position"]], cluster_df[["end_position"]]), labels = custom_labels) +
     theme(
       panel.background = element_rect(fill = "white"),
       panel.grid = element_blank(),
@@ -917,6 +929,32 @@ chromoZoom <- function(
     geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
     geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line) +
     geom_hline(yintercept = 0, color = "#444444", size = size_line, linetype = 1)
+View(cytobands)
+  # Bands
+  bands <- unlist(strsplit(cluster_df[["bands"]], ";"))
+  for(i in bands){
+    print(i)
+    zoom_plot <- zoom_plot +
+      annotate(
+        "rect",
+        xmin = cytobands[cytobands$band == i, "baseStart"],
+        xmax = cytobands[cytobands$band == i, "baseEnd"],
+        ymin = 1.4*min_fc,
+        ymax = 1.3*min_fc,
+        fill = "#ffffff00",
+        color = "black"
+      ) +
+      annotate(
+        "text",
+        x = (cytobands[cytobands$band == i, "baseStart"] + cytobands[cytobands$band == i, "baseEnd"])/2,
+        y = 1.35*min_fc,
+        label = sub("^[^_]*_", "", i),
+        color = "black",
+        size = 5,
+        #angle = 90,
+        fontface = "bold"
+      )
+  }
 
   # not DEGs
   for (i in not_DEGs){
