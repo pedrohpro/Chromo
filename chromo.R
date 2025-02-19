@@ -275,7 +275,7 @@ chromoCompositionPlot <- function(
     style_xaxis_label = "plain",
     style_yaxis_text = "bold",
     style_yaxis_label = "plain",
-    style_spacing = "" # Not working
+    style_spacing = "" # Not working, for space between bars
 ){
 
   gene_col <- chromoObject@columns$gene_col
@@ -577,6 +577,10 @@ chromoDensity <- function(
       cluster_num = seq(1,nrow(DEG_clusters))
     )
 
+  # removing clusters with only 1 DEG
+  DEG_clusters <- DEG_clusters %>%
+    filter(n_DEG > 1)
+
   # Bands affected by each cluster
   DEG_clusters <- DEG_clusters %>%
     rowwise() %>%
@@ -831,16 +835,6 @@ chromoZoom <- function(
     DEG_type = list("UP", "DOWN"), # list("UP", "DOWN"), "UP", "DOWN"
     cluster = 1,
 
-    color_dot_down = "#3771c8aa",
-    color_dot_up = "#ff2200aa",
-    color_dot_no = "#dddddd33",
-    color_bar_down = "#3771c866",
-    color_bar_up = "#ff220066",
-    color_gene_name_down = "#2D5EAA",
-    color_gene_name_up = "#aa0000",
-    color_gene_name_no = "#555555",
-    color_score_down = "#2D5EAA",
-    color_score_up = "#aa0000",
     color_line_up = "#aa0000",
     color_line_down = "#2D5EAA",
     color_xaxis_text = "black",
@@ -848,25 +842,19 @@ chromoZoom <- function(
     color_yaxis_text = "black",
     color_yaxis_label = "black",
 
-    size_dot_alt = 1.2,
-    size_dot_no = 0.8,
-    size_bar = 0.8,
-    size_gene_name = 3.2,
-    size_score = ifelse(chromoObject@composition$score_method %in% c("hyp", "hyp_padj"), 7, 4),
+    size_gene_name = 3,
     size_line = 0.4,
     size_xaxis_text = 12,
     size_xaxis_label = 12,
     size_yaxis_text = 12,
     size_yaxis_label = 12,
 
-    style_gene_name = "plain",
-    style_score = "bold",
+    style_gene_name = "bold",
     style_line = 2, # 1 - continuous, 2- dashed, 3 - dotted, etc.
     style_xaxis_text = "bold",
     style_xaxis_label = "plain",
     style_yaxis_text = "bold",
-    style_yaxis_label = "plain",
-    style_spacing = "" # Not working
+    style_yaxis_label = "plain"
 ){
 
   gene_col <- chromoObject@columns$gene_col
@@ -927,6 +915,8 @@ chromoZoom <- function(
       axis.title.y = element_text(color = color_yaxis_label, size = size_yaxis_label, face = style_yaxis_label),
       legend.position = "none" # Remove legends
     ) +
+    geom_vline(xintercept = cluster_df[["start_position"]], color = "#dddd00", size = size_line, linetype = style_line) +
+    geom_vline(xintercept = cluster_df[["end_position"]], color = "#dddd00", size = size_line, linetype = style_line) +
     geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
     geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line) +
     geom_hline(yintercept = 0, color = "#444444", size = size_line, linetype = style_line)
@@ -951,7 +941,6 @@ chromoZoom <- function(
         label = sub("^[^_]*_", "", i),
         color = "black",
         size = 3.5,
-        #angle = 90,
         fontface = "bold"
       )
   }
@@ -980,6 +969,8 @@ chromoZoom <- function(
       )
   }
 
+  set.seed(42) # gene name position
+
   # gene name
   zoom_plot <- zoom_plot +
     geom_text_repel(
@@ -987,8 +978,8 @@ chromoZoom <- function(
       aes(x = avg_position, y = log2FoldChange, label = Symbol, color = DEG),
       hjust = 0.5,
       vjust = 0.5,
-      size = 3,
-      fontface = "bold",
+      size = size_gene_name,
+      fontface = style_gene_name,
       inherit.aes = F
     )+
     scale_color_manual(values = c("DOWN" = "#002277", "UP" = "#772200"))
@@ -1000,7 +991,7 @@ chromoZoom <- function(
 
 ##############################
 ######    chromo ORA   #######
-############################## ############### tem algum bug no objeto que tem um elemento [[1]] vazio???????
+##############################
 
 chromoORA <- function(
     chromoObject,
@@ -1149,11 +1140,19 @@ chromoORAPlot <- function(
 
 
 
-#####################################
-#####    chromo Interactions    #####
-#####################################
 
-##### olhar a sugestão do stephen do NIH de regiões condensadas e descondensadas
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
