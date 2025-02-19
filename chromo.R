@@ -589,9 +589,9 @@ chromoDensity <- function(
         aux <- cytobands %>%
           filter(
             chr == chr_val,
-            (baseStart < end_val & baseStart > start_val) |
-              (baseEnd < end_val & baseEnd > start_val) |
-              (baseStart < start_val & baseEnd > end_val) ########## ainda tem clusters aparecendo sem bandas
+            (baseStart <= end_val & baseStart >= start_val) |
+              (baseEnd <= end_val & baseEnd >= start_val) |
+              (baseStart <= start_val & baseEnd >= end_val)
           )
 
         paste(aux$band, collapse = ";")
@@ -902,7 +902,8 @@ chromoZoom <- function(
   # min and max log2fc
   fc_vector <- DEdf %>% filter(!!sym(gene_col) %in% features_in_cluster) %>% pull(!!sym(fc_col))
   max_fc <- max(fc_vector)
-  min_fc <- min(fc_vector) ###### fix all application when there are none negative log2fc values!!!
+  min_fc <- min(fc_vector) ###### fix all application when there are none negative min log2fc values!!!???
+  size_adj <- (max_fc - min_fc)/30
 
   zoom_plot <- ggplot() +
     labs(
@@ -912,11 +913,11 @@ chromoZoom <- function(
         ", Chr", cluster_df[["chromosome"]],
         ", ", custom_labels(cluster_df[["start_position"]]), " - ", custom_labels(cluster_df[["end_position"]])
         ),
-      x = "bases",
+      x = NULL,
       y = "Log2 fold change"
     ) +
-    scale_y_continuous(expand = c(0, 0), limits = c(2*min_fc, max_fc), breaks = seq(ceiling(min_fc), floor(max_fc), 1)) +
-    #scale_x_continuous(expand = c(0, 0), limits = c(cluster_df[["start_position"]], cluster_df[["end_position"]]), labels = custom_labels) +
+    scale_y_continuous(expand = c(0, 0), limits = c(min_fc - 4*size_adj, max_fc), breaks = seq(ceiling(min_fc), floor(max_fc), 1)) +
+    scale_x_continuous(expand = c(0, 0), labels = custom_labels) + # limits = c(cluster_df[["start_position"]], cluster_df[["end_position"]])
     theme(
       panel.background = element_rect(fill = "white"),
       panel.grid = element_blank(),
@@ -928,29 +929,28 @@ chromoZoom <- function(
     ) +
     geom_hline(yintercept = chromoObject@classification$log2fc_cutoff, color = color_line_up, size = size_line, linetype = style_line) +
     geom_hline(yintercept = -chromoObject@classification$log2fc_cutoff, color = color_line_down, size = size_line, linetype = style_line) +
-    geom_hline(yintercept = 0, color = "#444444", size = size_line, linetype = 1)
-View(cytobands)
+    geom_hline(yintercept = 0, color = "#444444", size = size_line, linetype = style_line)
+
   # Bands
   bands <- unlist(strsplit(cluster_df[["bands"]], ";"))
   for(i in bands){
-    print(i)
     zoom_plot <- zoom_plot +
       annotate(
         "rect",
         xmin = cytobands[cytobands$band == i, "baseStart"],
         xmax = cytobands[cytobands$band == i, "baseEnd"],
-        ymin = 1.4*min_fc,
-        ymax = 1.3*min_fc,
+        ymin = min_fc - 4*size_adj,
+        ymax = min_fc - 1.5*size_adj,
         fill = "#ffffff00",
         color = "black"
       ) +
       annotate(
         "text",
         x = (cytobands[cytobands$band == i, "baseStart"] + cytobands[cytobands$band == i, "baseEnd"])/2,
-        y = 1.35*min_fc,
+        y = min_fc - 2.75*size_adj,
         label = sub("^[^_]*_", "", i),
         color = "black",
-        size = 5,
+        size = 3.5,
         #angle = 90,
         fontface = "bold"
       )
@@ -962,7 +962,7 @@ View(cytobands)
       annotate("rect",
                xmin = DEdf[DEdf$Symbol == i,"start_position"],
                xmax = DEdf[DEdf$Symbol == i,"end_position"],
-               ymin = DEdf[DEdf$Symbol == i,"log2FoldChange"] - (max_fc - min_fc)/30,
+               ymin = DEdf[DEdf$Symbol == i,"log2FoldChange"] - size_adj,
                ymax = DEdf[DEdf$Symbol == i,"log2FoldChange"],
                fill = '#77777777'
       )
@@ -974,7 +974,7 @@ View(cytobands)
       annotate("rect",
                xmin = DEdf[DEdf$Symbol == i,"start_position"],
                xmax = DEdf[DEdf$Symbol == i,"end_position"],
-               ymin = DEdf[DEdf$Symbol == i,"log2FoldChange"] - (max_fc - min_fc)/30,
+               ymin = DEdf[DEdf$Symbol == i,"log2FoldChange"] - size_adj,
                ymax = DEdf[DEdf$Symbol == i,"log2FoldChange"],
                fill = ifelse(DEdf[DEdf$Symbol == i,"DEG"] == "DOWN", "#0033ffaa", "#ff3300aa")
       )
